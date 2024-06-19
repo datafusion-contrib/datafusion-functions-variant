@@ -1,0 +1,16 @@
+[package]
+name = "open-variant"
+version = "0.1.0"
+edition = "2021"
+description = "Open Variant Data Type serialization and parsing"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = [""]
+categories = []
+repository = "https://github.com/datafusion-contrib/datafusion-functions-variant"
+
+[dependencies]
+
+[lints.clippy]
+dbg_macro = "deny"
+print_stdout = "deny"
