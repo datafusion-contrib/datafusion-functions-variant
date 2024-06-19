@@ -4,7 +4,9 @@ This is a Rust implementation of the Open Variant format. This provides a data
 structure for semi-structured data (like JSON) that is optimized for OLAP queries.
 
 Variants can be values of a variety of types, including strings, integers, decimals,
-objects, and arrays.
+objects, and arrays. This data is serialized in a binary format that is optimized
+for both small size and fast read access. This crate provides methods to write
+variants to a buffer and also to read values directly from these buffers.
 
 Data is written in two parts: a metadata section and a data section. The metadata
 section is meant to be shared across many data records. It holds the version of 
@@ -16,7 +18,7 @@ variant data, with all keys replaced by their index in the metadata section.
 ```rust
 // Writing an object
 use open_variant::metadata::build_metadata;
-use open_variant::variant::write::{ObjectBuilder, write_i64, write_string};
+use open_variant::values::write::{ObjectBuilder, write_i64, write_string};
 use open_variant::metadata::MetadataRef;
 
 // Provide all keys up front.
@@ -33,13 +35,16 @@ object.append_i64("quantity", 4);
 object.finish();
 
 // Reading the variant
-use open_variant::variant::VariantRef;
+use open_variant::values::{VariantRef, BasicType};
 
-let variant_ref = VariantRef(&data_buffer);
+let variant_ref = VariantRef::try_new(&data_buffer).unwrap();
+// The variant is an object
+assert_eq!(variant_ref.basic_type(), BasicType::Object);
+let object_ref = variant_ref.get_object().unwrap();
 
 // Get the field id for the "product" key. This can be done once and
 // reused for all records that share the same metadata buffer.
 let field_id = metadata_ref.find_string("product").unwrap();
-let product = variant_ref.get_object_value(field_id).unwrap().get_string();
+let product = object_ref.get_field(field_id).unwrap().get_string();
 assert_eq!(product, "apple");
 ```

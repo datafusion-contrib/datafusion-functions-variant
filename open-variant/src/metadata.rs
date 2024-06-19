@@ -1,5 +1,26 @@
-// In order to build a header, we need to visit all values and:
-// 1. Collect all strings that are keys or that are common.
+//! Read and write the metadata part of the variant format.
+//!
+//! The metadata part of the variant format storage the version and the
+//! dictionary of strings. The strings are mostly object keys, but can also be
+//! commonly used strings.
+//!
+//! Use [`build_metadata`] to create the metadata buffer based on the known
+//! strings. Use [`MetadataRef`] to read from the metadata buffer.
+//!
+//! ```rust
+//! use open_variant::metadata::{build_metadata, MetadataRef};
+//!
+//! let metadata: Vec<u8> = build_metadata(["apple", "carrot", "brussel sprouts"].into_iter());
+//!
+//! let metadata = MetadataRef::new(&metadata);
+//! assert_eq!(metadata.version(), 1);
+//!
+//! // The ids can be looked up based on the string. They are sorted, enabling
+//! // binary search to be used.
+//! assert_eq!(metadata.find_string("apple"), Some(0));
+//! assert_eq!(metadata.find_string("brussel sprouts"), Some(1));
+//! assert_eq!(metadata.find_string("carrot"), Some(2));
+//! ```
 
 use std::collections::BTreeSet;
 
@@ -12,7 +33,7 @@ pub fn build_metadata<'a>(string_iter: impl Iterator<Item = &'a str>) -> Vec<u8>
     // https://github.com/apache/spark/tree/master/common/variant#metadata-encoding
     let total_buffer_size = strings.iter().map(|s| s.len()).sum::<usize>();
     // The largest offset is the total buffer size.
-    let offset_size = crate::utils::get_offset_size(total_buffer_size);
+    let offset_size = crate::utils::determine_byte_width(total_buffer_size);
     // <header> <dictionary_size> <offsets> <data>
     let mut capacity = 1; // header byte
     capacity += offset_size as usize * (2 + strings.len()); // dictionary_size, n + 1 offsets
@@ -59,7 +80,7 @@ pub fn build_metadata<'a>(string_iter: impl Iterator<Item = &'a str>) -> Vec<u8>
     output
 }
 
-/// Parsed metadata buffer.
+/// A view into the metadata buffer.
 pub struct MetadataRef<'a> {
     header: u8,
     offset_size: u8,
@@ -69,6 +90,10 @@ pub struct MetadataRef<'a> {
 }
 
 impl<'a> MetadataRef<'a> {
+    /// Create a new metadata reference from the metadata buffer.
+    ///
+    /// The slice should start where the metadata buffer starts, but it is allowed
+    /// to contain more data after.
     pub fn new(data: &'a [u8]) -> Self {
         let header = data[0];
         let offset_size = ((header & 0b1100_0000) >> 6) + 1;
@@ -109,7 +134,7 @@ impl<'a> MetadataRef<'a> {
         }
     }
 
-    pub fn get_string(&self, id: usize) -> Option<&str> {
+    pub fn get_string<'b>(&'b self, id: usize) -> Option<&'a str> {
         if id >= self.dictionary_len {
             return None;
         }
@@ -174,7 +199,11 @@ mod tests {
 
     #[test]
     fn test_build_metadata() {
-        let metadata = build_metadata(vec!["apple", "carrot", "brussel sprouts"].into_iter());
+        let mut metadata = build_metadata(vec!["apple", "carrot", "brussel sprouts"].into_iter());
+
+        // Validate we can handle the buffer being larger than needed
+        metadata.extend(vec![0; 20]);
+
         let metadata = MetadataRef::new(&metadata);
         assert_eq!(metadata.version(), 1);
         assert!(metadata.sorted_strings());
