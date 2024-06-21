@@ -13,6 +13,16 @@ section is meant to be shared across many data records. It holds the version of
 the format as well as a list of keys. The data section holds the serialized
 variant data, with all keys replaced by their index in the metadata section.
 
+```text
+JSON string         [{"key1": 1, "key2": 2}, {"key1": 3, "key2": 4}]
+Variant Metadata    ["key1", "key2"]
+Variant Values      [{0: 1, 1: 2}, {0: 3, 1: 4}]
+```
+
+By pulling out the keys, space is saved in the serialized form. In addition, 
+string comparisons only have to occur ones to lookup the field ids. Afterwards,
+fields can be looked up in the values data by integer id.
+
 ## Example
 
 ```rust
