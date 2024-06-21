@@ -11,6 +11,11 @@ fn primitive_header(primitive_type_id: PrimitiveTypeId) -> u8 {
     basic_type | (primitive_type_id as u8) << 2
 }
 
+pub fn write_null(buffer: &mut Vec<u8>) {
+    let header = primitive_header(PrimitiveTypeId::Null);
+    buffer.push(header);
+}
+
 pub fn write_bool(buffer: &mut Vec<u8>, value: bool) {
     // Booleans are just headers
     let header = match value {
