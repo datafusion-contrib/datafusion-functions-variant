@@ -95,6 +95,8 @@ impl<'a> MetadataRef<'a> {
     /// The slice should start where the metadata buffer starts, but it is allowed
     /// to contain more data after.
     pub fn new(data: &'a [u8]) -> Self {
+        // TODO: make this validate the length of the buffer and return an error
+        // if not as long as expected.
         let header = data[0];
         let offset_size = ((header & 0b1100_0000) >> 6) + 1;
         let dictionary_len = Self::read_integer(data, 1, offset_size);

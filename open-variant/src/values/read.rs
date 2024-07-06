@@ -45,6 +45,14 @@ impl<'a> VariantRef<'a> {
         i64::from_le_bytes(self.0[1..9].try_into().unwrap())
     }
 
+    pub fn get_i128(&self) -> i128 {
+        if !matches!(self.primitive_type_id(), PrimitiveTypeId::Decimal16) {
+            panic!("Not an i128");
+        }
+        // 1 byte header + 16 byte i128
+        i128::from_le_bytes(self.0[1..17].try_into().unwrap())
+    }
+
     pub fn get_f64(&self) -> f64 {
         if !matches!(self.primitive_type_id(), PrimitiveTypeId::Float64) {
             panic!("Not an f64");
@@ -69,6 +77,19 @@ impl<'a> VariantRef<'a> {
 
     pub fn get_array<'b>(&'b self) -> Result<ArrayRef<'a>, String> {
         ArrayRef::try_new(self)
+    }
+
+    /// Get a field from an object or an element from an array.
+    ///
+    /// Returns None if the variant is not an object or an array.
+    /// Returns an error if the field_id is out of bounds, or if the variant
+    /// data is invalid.
+    pub fn field<'b>(&'b self, field_id: usize) -> Result<Option<VariantRef<'a>>, String> {
+        match self.basic_type() {
+            BasicType::Object => Ok(self.get_object()?.get_field(field_id)),
+            BasicType::Array => Ok(self.get_array()?.get_element(field_id)),
+            _ => Ok(None),
+        }
     }
 }
 
