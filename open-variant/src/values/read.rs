@@ -49,8 +49,8 @@ impl<'a> VariantRef<'a> {
         if !matches!(self.primitive_type_id(), PrimitiveTypeId::Decimal16) {
             panic!("Not an i128");
         }
-        // 1 byte header + 16 byte i128
-        i128::from_le_bytes(self.0[1..17].try_into().unwrap())
+        // 1 byte header + 1 byte scale + 16 byte i128
+        i128::from_le_bytes(self.0[2..18].try_into().unwrap())
     }
 
     pub fn get_f64(&self) -> f64 {

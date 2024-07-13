@@ -1,5 +1,6 @@
 //! Parse JSON data into variant data.
 
+use std::borrow::Cow;
 use std::{collections::BTreeSet, sync::Arc};
 
 use arrow_array::builder::BinaryBuilder;
@@ -12,7 +13,7 @@ use jiter::JsonValue;
 use open_variant::metadata::{build_metadata, MetadataRef};
 use open_variant::values::write::{self, ArrayBuilder, ObjectBuilder};
 
-pub fn variant_from_json<'a>(array: &'a dyn Array) -> Result<ArrayRef, ArrowError> {
+pub fn variant_from_json(array: &dyn Array) -> Result<ArrayRef, ArrowError> {
     // TODO: there's probably an optimal implementation that uses jiter, but that's
     // more complex to implement.
 
@@ -21,7 +22,7 @@ pub fn variant_from_json<'a>(array: &'a dyn Array) -> Result<ArrayRef, ArrowErro
     // Create a generic iterator so we don't have to monomorphize over every
     // string and binary array type.
     let bytes_iter = bytes_iter_from_array(array)?;
-    let jsons: Vec<JsonValue<'a>> = bytes_iter
+    let jsons: Vec<JsonValue<'_>> = bytes_iter
         .map(|bytes| match bytes {
             Some(bytes) => jiter::JsonValue::parse(bytes, true)
                 .map_err(|e| ArrowError::ComputeError(format!("Failed to parse JSON: {}", e))),
@@ -36,28 +37,32 @@ pub fn variant_from_json<'a>(array: &'a dyn Array) -> Result<ArrayRef, ArrowErro
     // TODO: also support collecting common strings from values.
     let strings = collect_all_keys(jsons_ref)?;
 
-    let metadata = build_metadata([].into_iter());
+    let metadata = build_metadata(strings.iter().map(|x| x.as_ref()));
     let metadata = BinaryArray::new_scalar(metadata);
     let metadata = make_repeated_dict_array(metadata, array.len());
     let metadata_ref = metadata
         .as_any_dictionary()
-        .keys()
+        .values()
         .as_binary::<i32>()
         .value(0);
     let metadata_ref = MetadataRef::new(metadata_ref);
 
     let data: BinaryArray =
         values_from_json(jsons_ref, array.null_count(), array.nulls(), &metadata_ref)?;
-    drop(jsons_ref);
     // Finally, create the StructArray
     let fields = vec![
-        Field::new("metadata", DataType::Binary, false),
-        Field::new("data", DataType::Binary, true),
+        Field::new(
+            "metadata",
+            DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Binary)),
+            false,
+        ),
+        Field::new("values", DataType::Binary, true),
     ];
+    let null_buffer = data.nulls().cloned();
     Ok(Arc::new(StructArray::new(
         fields.into(),
-        vec![Arc::new(metadata) as ArrayRef, Arc::new(data) as ArrayRef],
-        array.nulls().cloned(),
+        vec![metadata, Arc::new(data) as ArrayRef],
+        null_buffer,
     )) as ArrayRef)
 }
 
@@ -93,8 +98,8 @@ fn bytes_iter_from_array(
     }
 }
 
-fn collect_all_keys<'a>(jsons: &'a [JsonValue<'a>]) -> Result<BTreeSet<&'a str>, ArrowError> {
-    let mut seen: BTreeSet<&str> = BTreeSet::new();
+fn collect_all_keys<'a>(jsons: &[JsonValue<'a>]) -> Result<BTreeSet<Cow<'a, str>>, ArrowError> {
+    let mut seen = BTreeSet::new();
     let mut stack = Vec::new();
 
     let is_nested = |json: &JsonValue| matches!(json, JsonValue::Object(_) | JsonValue::Array(_));
@@ -102,7 +107,7 @@ fn collect_all_keys<'a>(jsons: &'a [JsonValue<'a>]) -> Result<BTreeSet<&'a str>,
         match json {
             JsonValue::Object(object) => {
                 for (key, value) in object.iter() {
-                    seen.insert(key);
+                    seen.insert(key.clone());
                     if is_nested(value) {
                         stack.push(value);
                     }
@@ -123,7 +128,7 @@ fn collect_all_keys<'a>(jsons: &'a [JsonValue<'a>]) -> Result<BTreeSet<&'a str>,
         match json {
             JsonValue::Object(object) => {
                 for (key, value) in object.iter() {
-                    seen.insert(key);
+                    seen.insert(key.clone());
                     if is_nested(value) {
                         stack.push(value);
                     }
@@ -165,7 +170,12 @@ fn values_from_json(
     for (i, json) in jsons.iter().enumerate() {
         if null_buffer.map(|b| b.is_valid(i)).unwrap_or(true) {
             convert_value(json, &mut buffer, key_map)?;
-            builder.append_value(&buffer);
+            if buffer == [0] {
+                // Special case for nulls, which are represented as "0" in the variant format.
+                builder.append_null();
+            } else {
+                builder.append_value(&buffer);
+            }
             buffer.clear();
         } else {
             builder.append_null();
@@ -238,7 +248,7 @@ mod tests {
                 Field::new(
                     "metadata",
                     DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Binary)),
-                    true,
+                    false,
                 ),
                 Field::new("values", DataType::Binary, true),
             ]
@@ -263,6 +273,8 @@ mod tests {
         assert_eq!(output.null_count(), 0);
         let values = output.as_struct().column(1).as_binary::<i32>();
         let variant = VariantRef::try_new(values.value(0)).unwrap();
+        assert_eq!(variant.basic_type(), BasicType::Object);
+        let variant = variant.field(0).unwrap().unwrap();
         assert_eq!(variant.basic_type(), BasicType::Primitive);
         assert_eq!(variant.primitive_type_id(), PrimitiveTypeId::Null);
     }
@@ -304,12 +316,12 @@ mod tests {
 
     #[test]
     fn test_floats() {
-        let output = check_parsing(&["3.14159265"]);
+        let output = check_parsing(&["45.454545"]);
         let values = output.as_struct().column(1).as_binary::<i32>();
         let variant = VariantRef::try_new(values.value(0)).unwrap();
         assert_eq!(variant.basic_type(), BasicType::Primitive);
         assert_eq!(variant.primitive_type_id(), PrimitiveTypeId::Float64);
-        assert_eq!(variant.get_f64(), 3.14159265);
+        assert_eq!(variant.get_f64(), 45.454545);
     }
 
     #[test]
@@ -370,11 +382,7 @@ mod tests {
         assert_eq!(get_field(&metadata_ref, &nested, "e").get_i64(), 4);
     }
 
-    fn get_element<'a>(
-        meta_ref: &'a MetadataRef<'a>,
-        variant: &'a VariantRef<'a>,
-        i: usize,
-    ) -> VariantRef<'a> {
+    fn get_element<'a>(variant: &'a VariantRef<'a>, i: usize) -> VariantRef<'a> {
         variant.field(i).unwrap().unwrap()
     }
 
@@ -403,45 +411,45 @@ mod tests {
 
         let variant = VariantRef::try_new(values.value(0)).unwrap();
         assert_eq!(variant.basic_type(), BasicType::Array);
-        assert_eq!(get_element(&metadata_ref, &variant, 0).get_i64(), 1);
-        assert_eq!(get_element(&metadata_ref, &variant, 1).get_string(), "b");
-        assert_eq!(get_element(&metadata_ref, &variant, 2).get_f64(), 3.0);
+        assert_eq!(get_element(&variant, 0).get_i64(), 1);
+        assert_eq!(get_element(&variant, 1).get_string(), "b");
+        assert_eq!(get_element(&variant, 2).get_f64(), 3.0);
 
         let variant = VariantRef::try_new(values.value(1)).unwrap();
         assert_eq!(variant.basic_type(), BasicType::Array);
-        assert_eq!(get_element(&metadata_ref, &variant, 0).get_string(), "a");
-        let nested = get_element(&metadata_ref, &variant, 1);
+        assert_eq!(get_element(&variant, 0).get_string(), "a");
+        let nested = get_element(&variant, 1);
         assert_eq!(nested.basic_type(), BasicType::Object);
         assert_eq!(get_field(&metadata_ref, &nested, "b").get_i64(), 2);
-        let nested = get_element(&metadata_ref, &variant, 2);
+        let nested = get_element(&variant, 2);
         assert_eq!(nested.basic_type(), BasicType::Array);
-        assert_eq!(get_element(&metadata_ref, &nested, 0).get_i64(), 3);
-        assert_eq!(get_element(&metadata_ref, &nested, 1).get_i64(), 4);
+        assert_eq!(get_element(&nested, 0).get_i64(), 3);
+        assert_eq!(get_element(&nested, 1).get_i64(), 4);
 
         let variant = VariantRef::try_new(values.value(2)).unwrap();
         assert_eq!(variant.basic_type(), BasicType::Array);
-        let nested = get_element(&metadata_ref, &variant, 0);
+        let nested = get_element(&variant, 0);
         assert_eq!(nested.basic_type(), BasicType::Array);
-        assert_eq!(get_element(&metadata_ref, &nested, 0).get_i64(), 3);
-        assert_eq!(get_element(&metadata_ref, &nested, 1).get_i64(), 4);
-        let nested = get_element(&metadata_ref, &nested, 2);
+        assert_eq!(get_element(&nested, 0).get_i64(), 3);
+        assert_eq!(get_element(&nested, 1).get_i64(), 4);
+        let nested = get_element(&nested, 2);
         assert_eq!(nested.basic_type(), BasicType::Object);
         assert_eq!(get_field(&metadata_ref, &nested, "c").get_i64(), 5);
 
         let variant = VariantRef::try_new(values.value(3)).unwrap();
         assert_eq!(variant.basic_type(), BasicType::Array);
-        let nested = get_element(&metadata_ref, &variant, 0);
+        let nested = get_element(&variant, 0);
         assert_eq!(nested.basic_type(), BasicType::Object);
         let nested = get_field(&metadata_ref, &nested, "d");
         assert_eq!(nested.basic_type(), BasicType::Array);
-        assert_eq!(get_element(&metadata_ref, &nested, 0).get_i64(), 6);
-        assert_eq!(get_element(&metadata_ref, &nested, 1).get_i64(), 7);
+        assert_eq!(get_element(&nested, 0).get_i64(), 6);
+        assert_eq!(get_element(&nested, 1).get_i64(), 7);
     }
 
     #[test]
     fn test_types() {
         // Accepts all string and binary types
-        let values = &["a", "1"];
+        let values = &["\"x\"", "1"];
         let arrays = [
             Arc::new(StringArray::from_iter_values(values)) as ArrayRef,
             Arc::new(LargeStringArray::from_iter_values(values)) as ArrayRef,
@@ -453,7 +461,12 @@ mod tests {
 
         for array in &arrays {
             let output = variant_from_json(array);
-            assert!(output.is_ok(), "Failed for {:?}", array.data_type());
+            assert!(
+                output.is_ok(),
+                "Failed for {:?} due to {}",
+                array.data_type(),
+                output.unwrap_err()
+            );
             let output = output.unwrap();
             assert_eq!(
                 output.data_type(),
@@ -465,7 +478,7 @@ mod tests {
                                 Box::new(DataType::Int8),
                                 Box::new(DataType::Binary)
                             ),
-                            true,
+                            false,
                         ),
                         Field::new("values", DataType::Binary, true),
                     ]
@@ -481,8 +494,10 @@ mod tests {
         let output = variant_from_json(&wrong_array);
         assert!(output.is_err());
         assert!(
-            matches!(output, Err(ArrowError::InvalidArgumentError(message))
-            if message.contains("Invalid type for variant_from_json"))
+            matches!(&output, Err(ArrowError::InvalidArgumentError(message))
+            if message.contains("Input data type not supported in variant_from_json: Int8")),
+            "Unexpected error: {:?}",
+            output
         );
     }
 
