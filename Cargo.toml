@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "open-variant",
+    "arrow-open-variant",
+]
+
+[workspace.dependencies]
+arrow-array = "52"
+arrow-buffer = "52"
+arrow-schema = "52"
+
+[lints.clippy]
+dbg_macro = "deny"
+print_stdout = "deny"
