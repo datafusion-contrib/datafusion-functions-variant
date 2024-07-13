@@ -3,12 +3,13 @@ members = [
     "open-variant",
     "arrow-open-variant",
 ]
+resolver = "2"
 
 [workspace.dependencies]
 arrow-array = "52"
 arrow-buffer = "52"
 arrow-schema = "52"
 
-[lints.clippy]
+[workspace.lints.clippy]
 dbg_macro = "deny"
 print_stdout = "deny"
