@@ -13,12 +13,29 @@ use jiter::JsonValue;
 use open_variant::metadata::{build_metadata, MetadataRef};
 use open_variant::values::write::{self, ArrayBuilder, ObjectBuilder};
 
+/// Create a variant array from an array of JSON data.
+///
+/// JSON data can be objects, arrays, strings, numbers, booleans, and nulls.
+///
+/// JSON data can be any string or binary array type, except for dictionary arrays.
+///
+/// Types are mapped as follows:
+///
+/// | JSON value       | Variant value |
+/// |------------------|---------------|
+/// | null             | Arrow null (top-level) or variant null (nested) |
+/// | boolean          | Variant boolean |
+/// | integer          | Variant i64 |
+/// | big integer      | Variant Decimal16, with scale 0 |
+/// | float            | Variant f64 |
+/// | string           | Variant string |
+/// | object           | Variant object |
+/// | array            | Variant array |
+///
+/// # Errors
+///
+/// If the JSON data is invalid.
 pub fn variant_from_json(array: &dyn Array) -> Result<ArrayRef, ArrowError> {
-    // TODO: there's probably an optimal implementation that uses jiter, but that's
-    // more complex to implement.
-
-    // First, use jitter to parse the JSON string into a JSON object
-
     // Create a generic iterator so we don't have to monomorphize over every
     // string and binary array type.
     let bytes_iter = bytes_iter_from_array(array)?;
@@ -31,9 +48,7 @@ pub fn variant_from_json(array: &dyn Array) -> Result<ArrayRef, ArrowError> {
         .collect::<Result<Vec<_>, _>>()?;
     let jsons_ref = jsons.as_slice();
 
-    // Next, instantiate collector for the dictionary. Then collect the values
-    // for this dictionary.
-    // For now we just collect object keys.
+    // We iterate once to collect all the object keys for the metadata.
     // TODO: also support collecting common strings from values.
     let strings = collect_all_keys(jsons_ref)?;
 
@@ -49,7 +64,6 @@ pub fn variant_from_json(array: &dyn Array) -> Result<ArrayRef, ArrowError> {
 
     let data: BinaryArray =
         values_from_json(jsons_ref, array.null_count(), array.nulls(), &metadata_ref)?;
-    // Finally, create the StructArray
     let fields = vec![
         Field::new(
             "metadata",
