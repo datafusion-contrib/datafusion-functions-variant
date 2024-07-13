@@ -1,0 +1,27 @@
+[package]
+name = "arrow-open-variant"
+version = "0.1.0"
+edition = "2021"
+description = "Open Variant Data Type Arrow functions"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = [""]
+categories = []
+repository = "https://github.com/datafusion-contrib/datafusion-functions-variant"
+
+[dependencies]
+arrow-array = "52"
+arrow-buffer = "52"
+arrow-schema = "52"
+open-variant = { path = "../open-variant" }
+
+# For JSON parsing
+jiter = { version = "0.4", optional = true }
+
+[features]
+default = ["json"]
+json = ["jiter"]
+
+[lints.clippy]
+dbg_macro = "deny"
+print_stdout = "deny"
