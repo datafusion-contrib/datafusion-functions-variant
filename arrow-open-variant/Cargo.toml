@@ -8,7 +8,7 @@ license = "Apache-2.0"
 keywords = [""]
 categories = []
 repository = "https://github.com/datafusion-contrib/datafusion-functions-variant"
-rust-version = "1.64"
+rust-version = "1.70"
 
 [dependencies]
 arrow-array.workspace = true
