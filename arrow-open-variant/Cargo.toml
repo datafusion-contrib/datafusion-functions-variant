@@ -8,11 +8,12 @@ license = "Apache-2.0"
 keywords = [""]
 categories = []
 repository = "https://github.com/datafusion-contrib/datafusion-functions-variant"
+rust-version = "1.70"
 
 [dependencies]
-arrow-array = "52"
-arrow-buffer = "52"
-arrow-schema = "52"
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
 open-variant = { path = "../open-variant" }
 
 # For JSON parsing
@@ -21,7 +22,3 @@ jiter = { version = "0.4", optional = true }
 [features]
 default = ["json"]
 json = ["jiter"]
-
-[lints.clippy]
-dbg_macro = "deny"
-print_stdout = "deny"
