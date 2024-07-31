@@ -11,9 +11,20 @@ fn primitive_header(primitive_type_id: PrimitiveTypeId) -> u8 {
     basic_type | (primitive_type_id as u8) << 2
 }
 
+pub fn serialize_null() -> u8 {
+    primitive_header(PrimitiveTypeId::Null)
+}
+
 pub fn write_null(buffer: &mut Vec<u8>) {
     let header = primitive_header(PrimitiveTypeId::Null);
     buffer.push(header);
+}
+
+pub fn serialize_bool(value: bool) -> u8 {
+    match value {
+        true => primitive_header(PrimitiveTypeId::BoolTrue),
+        false => primitive_header(PrimitiveTypeId::BoolFalse),
+    }
 }
 
 pub fn write_bool(buffer: &mut Vec<u8>, value: bool) {

@@ -13,6 +13,7 @@ rust-version = "1.70"
 [dependencies]
 arrow-array.workspace = true
 arrow-buffer.workspace = true
+arrow-cast.workspace = true
 arrow-schema.workspace = true
 open-variant = { path = "../open-variant" }
 
