@@ -4,14 +4,15 @@ use std::borrow::Cow;
 use std::{collections::BTreeSet, sync::Arc};
 
 use arrow_array::builder::BinaryBuilder;
-use arrow_array::{
-    cast::AsArray, Array, ArrayRef, BinaryArray, DictionaryArray, Scalar, StructArray,
-};
+use arrow_array::{cast::AsArray, Array, ArrayRef, BinaryArray, StructArray};
 use arrow_buffer::NullBuffer;
-use arrow_schema::{ArrowError, DataType, Field};
+use arrow_schema::{ArrowError, DataType};
 use jiter::JsonValue;
 use open_variant::metadata::{build_metadata, MetadataRef};
 use open_variant::values::write::{self, ArrayBuilder, ObjectBuilder};
+
+use crate::utils::make_repeated_dict_array;
+use crate::variant_fields;
 
 /// Create a variant array from an array of JSON data.
 ///
@@ -64,17 +65,9 @@ pub fn variant_from_json(array: &dyn Array) -> Result<ArrayRef, ArrowError> {
 
     let data: BinaryArray =
         values_from_json(jsons_ref, array.null_count(), array.nulls(), &metadata_ref)?;
-    let fields = vec![
-        Field::new(
-            "metadata",
-            DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Binary)),
-            false,
-        ),
-        Field::new("values", DataType::Binary, true),
-    ];
     let null_buffer = data.nulls().cloned();
     Ok(Arc::new(StructArray::new(
-        fields.into(),
+        variant_fields(),
         vec![metadata, Arc::new(data) as ArrayRef],
         null_buffer,
     )) as ArrayRef)
@@ -162,13 +155,6 @@ fn collect_all_keys<'a>(jsons: &[JsonValue<'a>]) -> Result<BTreeSet<Cow<'a, str>
     Ok(seen)
 }
 
-fn make_repeated_dict_array(scalar: Scalar<BinaryArray>, length: usize) -> ArrayRef {
-    let dict_keys = std::iter::repeat(0_i8).take(length).collect::<Vec<_>>();
-    let metadata =
-        DictionaryArray::new(dict_keys.into(), Arc::new(scalar.into_inner()) as ArrayRef);
-    Arc::new(metadata)
-}
-
 fn values_from_json(
     jsons: &[jiter::JsonValue],
     null_count: usize,
@@ -250,6 +236,7 @@ mod tests {
     use arrow_array::{
         types::Int8Type, BinaryViewArray, Int8Array, LargeStringArray, StringArray, StringViewArray,
     };
+    use arrow_schema::Field;
     use open_variant::values::{BasicType, PrimitiveTypeId, VariantRef};
 
     use super::*;
