@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-arrow-array = "52"
+arrow-array = "53"
 arrow-buffer = "52"
 arrow-schema = "52"
 
