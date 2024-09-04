@@ -8,7 +8,7 @@ resolver = "2"
 [workspace.dependencies]
 arrow-array = "52"
 arrow-buffer = "52"
-arrow-schema = "52"
+arrow-schema = "53"
 
 [workspace.lints.clippy]
 dbg_macro = "deny"
