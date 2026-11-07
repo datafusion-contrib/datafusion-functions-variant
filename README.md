@@ -1,3 +1,9 @@
+# ARCHIVED
+
+This repository is no longer actively developed or maintained. Please see the
+[datafusion-variant](https://github.com/datafusion-contrib/datafusion-variant)
+for an alternative.
+
 # Open Variant Rust
 
 This is a Rust implementation of the Open Variant format. This provides a data
@@ -14,4 +20,3 @@ There are three libraries:
     Apache Arrow.
 3. (TODO) `datafusion-functions-variant`: A library that provides functions to work
     with variant data in DataFusion.
-
